@@ -1,0 +1,6 @@
+__pycache__/
+code/demand/runs/
+code/demand/수요예측_결과/*.csv
+code/demand/수요예측_결과/*.json
+code/demand/수요예측_결과/*.tmp
+code/demand/수요예측_결과/*.pt

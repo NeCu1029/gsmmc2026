@@ -2,10 +2,10 @@
 
 - pandas
 
-# 작업 순서
+# 실행 순서
 
-1. 머신러닝으로 일별 or 시간별 대여량, 반납량 추정
-2. 알고리즘으로 대여량과 반납량 알 때 배치 결정
+1. `code/1_XlsxToCsv.py`
+2. `code/demand/forecast_v2.py`
 
 # 주의 사항
 
