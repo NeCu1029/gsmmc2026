@@ -8,3 +8,7 @@ result.csv
 code/demand_net/results/
 code/demand_net/runs/
 code/demand_asymmetric/runs/
+
+# 의사결정 모델의 CSV, JSON, CBM, NPZ 등 모든 실행 산출물
+code/demand_decision/results/
+code/demand_decision/runs/
