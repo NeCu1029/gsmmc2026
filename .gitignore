@@ -12,3 +12,6 @@ code/demand_asymmetric/runs/
 # 의사결정 모델의 CSV, JSON, CBM, NPZ 등 모든 실행 산출물
 code/demand_decision/results/
 code/demand_decision/runs/
+
+# 대여인기 규칙 모델 실행 산출물
+code/demand_rule/results/
