@@ -1,14 +1,14 @@
 """반납 - 대여를 하나의 실수로 직접 예측하는 GNN + LSTM 모델.
 
 재현 환경: torch 2.15.0 (CPU), numpy 2.3.5, pandas 3.0.1, openpyxl 3.1.5.
-새 환경에서는 python -m pip install torch numpy pandas openpyxl 로 설치한다.
-저장소 루트에서 실행한다. learn_data와 input_data의 CSV를 읽는다.
+저장소 루트에서 learn_data와 input_data의 CSV를 읽는다.
 python code/demand_net/forecast_net.py train
 python code/demand_net/forecast_net.py predict
 
 y = 실제 반납 - 실제 대여, e = 순유입 예측값 - y
-loss = mean(over_weight * relu(e)^2 + relu(-e)^2)
-기본값 over_weight=3. 양수 출력은 재고 증가, 음수 출력은 재고 감소다.
+기본 손실은 mean(e^2)인 대칭 제곱오차다 (over_weight=1).
+양수 출력은 재고 증가, 음수 출력은 재고 감소다.
+over_weight>1은 평균보다 낮은 예측을 유도하는 비교 실험용 설정이다.
 """
 import argparse
 import json
@@ -41,7 +41,7 @@ ACCESS = ["nearest_bus_distance_m", "bus_stop_count_500m",
 WEATHER = ["temperature_c", "humidity_pct", "precipitation_mm", "wind_speed_kmh"]
 CSV_NAME = "B지역_시간별_순유입_예측.csv"
 MODEL_NAME = "bike_net_flow.pt"
-DEFAULT_OVER_WEIGHT = 3.0
+DEFAULT_OVER_WEIGHT = 1.0
 
 
 @dataclass
@@ -239,8 +239,10 @@ def metrics(truth, predictions, over_weight):
     over = net_error.clamp_min(0)
     under = (-net_error).clamp_min(0)
     return {"station_hours": len(net_error),
+            "net_MSE": net_error.square().mean().item(),
             "net_RMSE": net_error.square().mean().sqrt().item(),
             "mean_observed_net": truth.double().mean().item(),
+            "mean_predicted_net": predictions.double().mean().item(),
             "net_MAE": net_error.abs().mean().item(),
             "net_bias": net_error.mean().item(),
             "net_over_MAE_all_rows": over.mean().item(),
@@ -293,7 +295,9 @@ def train(a, folder, over_weight):
     observed = torch.cat(observations, dim=1)
     epochs = int(np.median([fold["selected_epochs"] for fold in reports]))
     loss_config = {"over_weight": over_weight, "net_definition": TARGET,
-                   "net_error_definition": "predicted_net - actual_net"}
+                   "net_error_definition": "predicted_net - actual_net",
+                   "objective": "mse" if over_weight == 1 else "asymmetric_mse",
+                   "forecast_role": "mean_estimate" if over_weight == 1 else "conservative_estimate"}
     report = {"target": TARGET, "seed": SEED, "final_epochs": epochs,
               "loss_config": loss_config,
               "train_dates": [str(a.dates[historical[i]].date()) for i in (0, -1)],
@@ -311,14 +315,34 @@ def train(a, folder, over_weight):
     os.replace(checkpoint.with_suffix(".tmp"), checkpoint)
     (folder / "A_validation.json").write_text(json.dumps(report, ensure_ascii=False, indent=2),
                                              encoding="utf-8")
+    # Holdout predictions allow independent checking of both bias and allocation costs.
+    station_order = [sid for fold in reports for sid in fold["test_station_ids"]]
+    index = pd.MultiIndex.from_product([a.dates[future], station_order, range(24)],
+                                       names=["date", "station_id", "hour"])
+    audit = pd.DataFrame({"actual_net_flow": observed.flatten().numpy(),
+                          "pred_net_flow": torch.cat(predictions["direct_net_gnn_lstm"], dim=1).flatten().numpy()},
+                         index=index).reset_index()
+    audit = audit[["date", "hour", "station_id", "actual_net_flow", "pred_net_flow"]]
+    audit.sort_values(["date", "hour", "station_id"]).to_csv(
+        folder / "A_검증예측.csv", index=False, encoding="utf-8-sig")
 
 
-def export_b(b, folder):
-    saved = torch.load(folder / MODEL_NAME, map_location="cpu", weights_only=True)
+def validate_checkpoint(saved, expected_over_weight):
+    """Prevent an old asymmetric checkpoint from silently serving a mean forecast."""
     if saved.get("model_type") != "direct_net_gnn_lstm" or saved.get("target") != TARGET:
         raise ValueError("직접 순유입 예측용 모델 파일이 필요합니다")
     if saved["k"] != K:
         raise ValueError("학습 모델과 그래프의 이웃 수가 다릅니다")
+    saved_weight = saved.get("loss_config", {}).get("over_weight")
+    if saved_weight != expected_over_weight:
+        raise ValueError(f"모델의 over_weight={saved_weight}, 요청한 값={expected_over_weight}. "
+                         "현재 설정으로 train을 다시 실행하거나 같은 설정의 모델을 사용하세요. "
+                         "기존 비대칭 모델 재현은 --over-weight 3을 명시해야 합니다.")
+
+
+def export_b(b, folder, expected_over_weight=DEFAULT_OVER_WEIGHT):
+    saved = torch.load(folder / MODEL_NAME, map_location="cpu", weights_only=True)
+    validate_checkpoint(saved, expected_over_weight)
     model = GraphLSTM(saved["ns"], saved["nt"])
     model.load_state_dict(saved["state"])
     net = predict(model, b, np.arange(len(b.dates)), np.arange(len(b.stations)))
@@ -334,6 +358,16 @@ def export_b(b, folder):
     tmp = path.with_suffix(".tmp")
     out.to_csv(tmp, index=False, encoding="utf-8-sig", float_format="%.4f")
     os.replace(tmp, path)
+    values = net.flatten().double()
+    summary = {"target": TARGET, "loss_config": saved["loss_config"],
+               "station_hours": len(out), "stations": len(b.stations), "days": len(b.dates),
+               "mean_pred_net_flow": values.mean().item(),
+               "mean_abs_pred_net_flow": values.abs().mean().item(),
+               "negative_fraction": (values < 0).double().mean().item(),
+               "sum_pred_net_flow": values.sum().item(),
+               "note": "Forecast distribution only; B ground truth and actual score are unavailable."}
+    (folder / "B_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2),
+                                           encoding="utf-8")
     print(f"Exported {len(out)} station-hours to {path}", flush=True)
 
 
@@ -344,7 +378,7 @@ if __name__ == "__main__":
                         help="learn_data와 input_data를 포함한 저장소 루트")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "results")
     parser.add_argument("--over-weight", type=float, default=DEFAULT_OVER_WEIGHT,
-                        help="같은 크기의 과소예측 대비 순유입 과대예측 제곱 벌점 배수")
+                        help="기본 1은 평균 순유입용 대칭 MSE. 1 초과는 과소예측을 유도하는 비교 실험용")
     args = parser.parse_args()
     if not np.isfinite(args.over_weight) or args.over_weight < 1:
         parser.error("--over-weight는 유한한 1 이상의 수여야 합니다")
@@ -355,4 +389,4 @@ if __name__ == "__main__":
         a = read_city(args.data_dir / "learn_data", True)
         train(a, args.output_dir, args.over_weight)
     b = read_city(args.data_dir / "input_data", False)
-    export_b(b, args.output_dir)
+    export_b(b, args.output_dir, args.over_weight)
