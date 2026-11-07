@@ -3,3 +3,8 @@ code/demand/runs/
 code/demand/수요예측_결과/
 code/demand_asymmetric/수요예측_비대칭_결과/
 result.csv
+
+# 모델 실행 결과에는 CSV, 검증 JSON, 학습된 PT가 함께 생성된다.
+code/demand_net/results/
+code/demand_net/runs/
+code/demand_asymmetric/runs/
