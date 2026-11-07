@@ -5,7 +5,7 @@
 실행: python make_result.py
 
 모든 입력/출력 경로는 스크립트 위치가 아니라 실행 작업 디렉터리(CWD) 기준이다.
-  예측:    code/demand/수요예측_결과/B지역_시간별_대여반납_예측.csv
+  예측:    code/demand_asymmetric/수요예측_비대칭_결과/B지역_시간별_대여반납_예측.csv
   제출 틀: submit_temp.csv
   수용량:  input_data/spots.csv
   결과:    result.csv
@@ -33,7 +33,7 @@ from numba import njit
 DAYS = 30
 HOURS = 24
 # Path는 실행 위치(CWD)를 기준으로 해석한다. __file__을 기준으로 하지 않는다.
-PRED_PATH = Path("code/demand/수요예측_결과/B지역_시간별_대여반납_예측.csv")
+PRED_PATH = Path("code/demand_asymmetric/수요예측_비대칭_결과/B지역_시간별_대여반납_예측.csv")
 TEMPLATE_PATH = Path("submit_temp.csv")
 STATIONS_PATH = Path("input_data/spots.csv")
 OUTPUT_PATH = Path("result.csv")

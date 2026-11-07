@@ -1,4 +1,5 @@
 __pycache__/
 code/demand/runs/
 code/demand/수요예측_결과/
+code/demand_asymmetric/수요예측_비대칭_결과/
 result.csv
