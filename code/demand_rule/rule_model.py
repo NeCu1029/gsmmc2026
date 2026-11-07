@@ -9,7 +9,13 @@
 
 저장소 루트에서 실행:  python code/demand_rule/rule_model.py
 결과: code/demand_rule/results/B_배치표.csv (제출 형식), B_대여인기_예측.csv
+
+공개일 사용:  python code/demand_rule/rule_model.py --reveal open_data/B지역_공개일_D10_2026-06-10.csv
+  로지스틱 대신 공개일 B 실측으로 같은 기준(0~12시 누적 순유입 <= -floor(capacity/2))을 적용해
+  대여인기를 정하고, 같은 배치를 모든 날에 쓴다.
+  결과: code/demand_rule/results/B_배치표_공개일.csv, B_대여인기_공개일.csv
 """
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -45,6 +51,35 @@ def rental_popular_labels(spots):
     return (net <= -(spots.capacity // 2)).astype(int), net
 
 
+def write_table(spots_b, x, name):
+    OUT.mkdir(parents=True, exist_ok=True)
+    table = pd.read_csv("submit_temp.csv", encoding="utf-8-sig")
+    lookup = dict(zip(spots_b.index, x))
+    for d in range(1, 31):
+        table[f"D{d:02d}"] = table.station_id.map(lookup).astype(int)   # 매일 같은 배치
+    table.to_csv(OUT / name, index=False, encoding="utf-8-sig")
+    return OUT / name
+
+
+def from_reveal(path):
+    spots_b = pd.read_csv("input_data/spots.csv").set_index("station_id").sort_index()
+    day = pd.read_csv(path, encoding="utf-8-sig").rename(columns={"시": "hour"})
+    morning = day[day.hour < NOON]
+    net = (morning.returns - morning.rentals).groupby(morning.station_id).sum()
+    net = net.reindex(spots_b.index, fill_value=0)
+    popular = (net <= -(spots_b.capacity // 2)).to_numpy()
+    x = np.where(popular, spots_b.capacity.to_numpy(), 0)
+    if x.sum() < 1:
+        x[np.argmax(spots_b.capacity.to_numpy())] = 1
+    out = write_table(spots_b, x, "B_배치표_공개일.csv")
+    pd.DataFrame({"station_id": spots_b.index, "capacity": spots_b.capacity,
+                  "net_0_12h": net.to_numpy(), "rental_popular": popular, "x": x}).to_csv(
+        OUT / "B_대여인기_공개일.csv", index=False, encoding="utf-8-sig")
+    print(f"공개일 {Path(path).name} 기준 B 대여인기 {int(popular.sum())}/{len(popular)}곳 "
+          f"→ N = {int(x.sum())} (매일 동일)")
+    print(f"저장: {out}")
+
+
 def main():
     spots_a, Xa = station_features("learn_data")
     spots_b, Xb = station_features("input_data")
@@ -78,4 +113,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--reveal", help="공개일 CSV (날짜,요일,시,station_id,rentals,returns)")
+    args = parser.parse_args()
+    from_reveal(args.reveal) if args.reveal else main()
