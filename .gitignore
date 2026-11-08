@@ -31,3 +31,6 @@ code/demand_neural_final/results_bounded/
 
 # Updated unpenalized ensemble outputs with D23 public observations
 code/demand_neural_final/results_public_d23/
+
+# D24 public-observation update outputs
+code/demand_neural_final/results_public_d24/
