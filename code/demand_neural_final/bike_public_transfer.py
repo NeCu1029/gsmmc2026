@@ -57,6 +57,24 @@ def adjusted(predicted, public_predicted, public_actual, off, public_off, weekda
     return result
 
 
+def simulation_days(off, public_days, limit):
+    """A 검증에서 흉내 낼 '공개일'을 고른다.
+
+    내부 선택(17~23일)·최종 평가(24~30일) 기간과 겹치지 않도록 limit(=16일) 이전 날만 쓴다.
+    B 공개일이 그 안에 있으면 같은 날짜를 그대로 쓰고(기존과 동일), 17일 이후면 같은 유형(평일/휴일)의
+    아직 안 쓴 가장 늦은 날로 대신한다. B 배치에는 실제 공개일을 그대로 쓴다.
+    """
+    chosen = [int(d) for d in public_days if d < limit]
+    for d in public_days:
+        if d < limit:
+            continue
+        candidates = [c for c in range(limit - 1, -1, -1) if off[c] == off[d] and c not in chosen and c not in public_days]
+        if not candidates:
+            raise ValueError("No same-type day left to simulate this public day")
+        chosen.append(candidates[0])
+    return np.array(sorted(chosen))
+
+
 def select(data, target, sites, days, public_days):
     past, validation = days[:-7], days[-7:]
     if not set(public_days).issubset(set(past)):
@@ -85,6 +103,9 @@ def select(data, target, sites, days, public_days):
 def train(data, public_days, output):
     days, sites = np.arange(len(data.city.dates)), np.arange(len(data.city.stations))
     past, future = days[:-7], days[-7:]
+    b_public_days = public_days
+    # 17일 이후 공개일도 쓸 수 있도록 A 검증용 모사 날짜를 따로 고른다 (9·10일이면 그대로).
+    public_days = simulation_days(data.city.off_day, public_days, len(days) - 14)
     target = increments(data.city.net_flow.numpy(), data.capacity)
     order = np.random.default_rng(forecast.SEED).permutation(len(sites))
     groups = np.split(order, [i * (len(sites) // 5) for i in range(1, 5)])
@@ -106,9 +127,11 @@ def train(data, public_days, output):
     config, search = select(data, target, order, past, public_days)
     models = [inventory.fit(data, target, days, sites, seed, epoch)[0] for seed, epoch in zip(inventory.SEEDS, config["epochs"])]
     torch.save({"model_type": "public_marginal_inventory_v1", "ns": data.similarity.shape[-1], "nt": inventory.day_features(data).shape[-1],
-                "states": [m.state_dict() for m in models], "config": config, "public_days": public_days.tolist()}, output / "public_inventory.pt")
-    report = {"protocol": "5 station folds. Train other stations on days 1-23. Reveal target stations on days 9/10 only. Test days 24-30; never used for fitting or calibration. Inner selection uses days 17-23 and matching public days.",
-              "public_dates": data.city.dates[public_days].strftime("%Y-%m-%d").tolist(), "final_config": config, "final_search": search, "folds": records,
+                "states": [m.state_dict() for m in models], "config": config, "public_days": b_public_days.tolist(),
+                "simulated_days": public_days.tolist()}, output / "public_inventory.pt")
+    report = {"protocol": "5 station folds. Train other stations on days 1-23. Reveal target stations on the simulated public days (all within days 1-16). Test days 24-30; never used for fitting or calibration. Inner selection uses days 17-23.",
+              "public_dates": data.city.dates[b_public_days].strftime("%Y-%m-%d").tolist(),
+              "simulated_public_dates_on_A": data.city.dates[public_days].strftime("%Y-%m-%d").tolist(), "final_config": config, "final_search": search, "folds": records,
               "actual_score": realized_score(data.city.net_flow[future].numpy(), allocation, data.capacity)}
     (output / "public_transfer_validation.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     pd.DataFrame(allocation.T, index=data.city.stations, columns=[f"D{d+1:02d}" for d in future]).rename_axis("station_id").to_csv(output / "A_공개일활용_검증배치.csv", encoding="utf-8-sig")
