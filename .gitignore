@@ -15,3 +15,7 @@ code/demand_decision/runs/
 
 # 대여인기 규칙 모델 실행 산출물
 code/demand_rule/results/
+
+# Neural submission: exclude all generated CSV, JSON, PT, NPZ and run artifacts
+code/demand_neural_final/results/
+code/demand_neural_final/runs/
