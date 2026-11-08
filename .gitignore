@@ -25,3 +25,6 @@ code/demand_neural_final/results_v2/
 
 # Fleet-penalty model outputs: CSV, JSON, PT, NPZ
 code/demand_neural_final/results_fleet/
+
+# Cost-bounded fleet optimization outputs
+code/demand_neural_final/results_bounded/
