@@ -19,3 +19,6 @@ code/demand_rule/results/
 # Neural submission: exclude all generated CSV, JSON, PT, NPZ and run artifacts
 code/demand_neural_final/results/
 code/demand_neural_final/runs/
+
+# Public-signature neural model artifacts (CSV, JSON, PT, NPZ)
+code/demand_neural_final/results_v2/
