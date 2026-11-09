@@ -34,3 +34,6 @@ code/demand_neural_final/results_public_d23/
 
 # D24 public-observation update outputs
 code/demand_neural_final/results_public_d24/
+
+# Episodic Attention model outputs
+code/demand_neural_final/results_attention/
