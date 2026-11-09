@@ -43,3 +43,6 @@ code/demand_neural_final/results_public_d13/
 
 # Feedback-calibrated inventory outputs: CSV, JSON, PT, NPZ
 code/demand_neural_final/results_feedback/
+
+# Final score-calibrated consensus outputs: CSV, JSON, NPZ, PT
+code/demand_neural_final/results_last/
